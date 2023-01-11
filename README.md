@@ -1,7 +1,7 @@
 # Bike-sharing Data Analysis
 Hey, you're visiting my Google Data Analytics case study project on bike-sharing data
 
-First of all, please proceed to 'presentation.pdf' file you can check the problem, the analysis and my solution there
+First of all, please proceed to 'presentation.pdf' file - you can check the problem, the analysis and my solution there
 
 If you want to get better acquainted with analysis or if you prefer to read code, please go to 'documentation.pdf' or 'documentation.html'
 
