@@ -1,0 +1,230 @@
+---
+title: "Bike-share Case Study"
+author: "Timur Rakhimyanov"
+date: "2022-12-28"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Dataset
+
+Data, provided for this analysis, contains 12 months of Cyclistic's users bike-sharing history.  
+Data has been made available under [this license](https://ride.divvybikes.com/data-license-agreement).
+
+## Questions
+
+Questions, that were asked for this analysis are:  
+*1. How do annual members and casual riders use Cyclistic bikes differently?*  
+*2. Why would casual riders buy Cyclistic annual memberships?*  
+*3. How can Cyclistic use digital media to influence casual riders to become members?*  
+
+## Preparation and procession of data
+### Loading libraries and reading data
+
+To begin with, I'll load the libraries I'm going to use.
+```{r preparations, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(janitor)
+library(lubridate)
+library(pivottabler)
+```
+
+Then let's read datasets.
+```{r reading, message=FALSE, warning=FALSE}
+bike_trips_datasets = list.files(path = "datasets",
+                                 recursive = TRUE,
+                                 pattern = ".csv",
+                                 full.names = TRUE)
+bike_trips_dataframe <- readr::read_csv(bike_trips_datasets, id = "file_name")
+```
+
+### Cleaning data
+
+Now let's do standard cleaning and peak in the data.
+```{r cleaning, message=FALSE, warning=FALSE, results='hide'}
+clean_names(bike_trips_dataframe)
+```
+```{r peaking, echo=TRUE}
+head(bike_trips_dataframe)
+```
+
+We can see, that there are values missing (shown as "NA"), let's check how much do we miss.
+```{r check for NAs, echo=TRUE}
+sapply(bike_trips_dataframe, function(x) sum(is.na(x)))
+```
+
+Missing data is start and end stations, so our choices are:  
+*1. Populate the missing values with averages.*  
+*2. Delete rows with data missing.*  
+*3. Create sub-dataframes with no data missing for particular parts of analysis.*  
+Third options is preferable, because resulting analysis would be more comprehensive.
+
+So the plan is: we will look for insights in full dataset based on fields with no data missing, then we will create separate dataframes for stations insights.
+
+### Adding additional attributes
+
+For now let's add durations of the trips.
+```{r adding durations, echo=TRUE}
+bike_trips_dataframe <- transform(bike_trips_dataframe, duration = difftime(ended_at, started_at, units = "mins"))
+```
+
+Let's check if we have any errors - negative durations.
+```{r check for durations errors, echo=TRUE}
+head(filter(bike_trips_dataframe, duration < 0))
+```
+
+Now let's clear the errors.
+```{r clear duration errors, echo=TRUE}
+bike_trips_dataframe <- filter(bike_trips_dataframe, duration >= 0)
+```
+
+Let's add days of week too, Monday would be 1, Sunday would be 7 and so on.
+```{r adding days of week, echo=TRUE}
+bike_trips_dataframe <- transform(bike_trips_dataframe, day_of_week = wday(started_at, week_start = 1))
+```
+
+## Analysis
+
+The goal of analysis is to find behavior patters of casual members.  
+I'd like to find some correlations between **membership type** and following attributes: **bike types**, **trip durations** and **days of week**.
+
+### Bike types correlations
+
+Let's make a pivot table on membership type vs. bike type.
+```{r pivot for membership type vs bike type, echo=TRUE}
+qpvt(bike_trips_dataframe, "rideable_type", "member_casual","n()")
+```
+
+Two insights I could see are:  
+*1. Casual users tend to use electric bikes much more than classic ones, where members prefer the other option.*  
+*2. There are no data of member's usage of docked bikes which can be explained in a way that there are no such thing as docks for subscribers.*  
+  
+Let's visualize it.
+```{r plot for membership type vs bike type, echo=TRUE}
+ggplot(data=bike_trips_dataframe)+
+  geom_bar(mapping=aes(x=member_casual, fill=rideable_type))+
+  scale_fill_brewer(type = "div")+
+  labs(x="membership type", y="amount", fill="rideable type", title="Membership type vs. rideable type")
+```
+
+### Days of week correlations
+
+Let's make a pivot table on membership type vs. day of week.
+```{r pivot for membership type vs day of week, echo=TRUE}
+qpvt(bike_trips_dataframe, "day_of_week", "member_casual","n()")
+```
+
+Key insight I could see is:  
+*Casual users tend to use bikes much more on weekends as opposed to members that are using bikes on weekdays more frequently.*  
+  
+Let's visualize it.
+```{r plot for membership type vs day of week, echo=TRUE}
+ggplot(data=bike_trips_dataframe)+
+  geom_bar(mapping=aes(x=member_casual, fill=factor(day_of_week)))+
+  scale_fill_brewer(type = "div")+
+  labs(x="membership type", y="amount", fill="day of week", title="Membership type vs. day of week")
+```
+
+### Days of week and mean duration correlations
+
+Let's make a pivot table on membership type vs. day of week but this time include mean duration.
+```{r pivot for membership type vs day of week vs duration, echo=TRUE}
+qpvt(bike_trips_dataframe, "day_of_week", "member_casual", "mean(as.numeric(duration))", format="%.1f")
+```
+
+Two insight I could see are:  
+*1. Average trip duration is much higher for casual members.*  
+*2. Distribution of duration on days of week is similar with subscribed members with pretty high increase on Mondays and Sundays.*  
+  
+Yet again let's visualize it.
+```{r plot for membership type vs day of week vs duration, echo=TRUE}
+ggplot(bike_trips_dataframe,aes(color=member_casual))+
+  stat_summary(fun="mean", geom="line", mapping=aes(x=day_of_week, y=as.numeric(duration)))+
+  scale_x_continuous(breaks = c(1, 2, 3, 4, 5, 6, 7))+
+  facet_wrap(~member_casual)+
+  labs(x="day of week", y="mean duration", color="membership type", title="Membership type vs. day of week vs. mean duration")
+```
+
+## Additional analysis on stations
+
+Now I'll get back to stations data and create sub-dataframes without any missing values.
+
+```{r creating dataframes with no missing data}
+no_start_missing <- filter(bike_trips_dataframe, !is.na(start_station_id))
+no_end_missing <- filter(bike_trips_dataframe, !is.na(end_station_id))
+```
+
+Let's limit dataframes to include only 10 most popular stations in both cases.
+```{r limiting dataframes to top 10}
+most_popular_starts <- c(head(no_start_missing %>% count (start_station_name, sort=TRUE), 10)['start_station_name'])
+popular_starts_df <- filter(no_start_missing, start_station_name %in% most_popular_starts$start_station_name)
+most_popular_ends <- c(head(no_end_missing %>% count (end_station_name, sort=TRUE), 10)['end_station_name'])
+popular_ends_df <- filter(no_end_missing, end_station_name %in% most_popular_ends$end_station_name)
+```
+
+### Start stations correlations
+
+Let's make a pivot table on membership type vs. start stations.
+```{r pivot for membership type vs start station, echo=TRUE}
+qpvt(popular_starts_df, "start_station_name", "member_casual", "n()")
+```
+
+Key insights would be stations that tend to be a trip start more frequently (relatively) for casual member; these would be following stations:  
+*1. Streeter Dr & Grand Ave with great increase.*  
+*2. DuSable Lake Shore Dr & Monroe St with great increase.*  
+*3. Millennium Park with high increase.*  
+*4. Michigan Ave & Oak St with slight increase.*  
+  
+Let's visualize it.
+```{r plot for membership type vs start station, echo=TRUE}
+ggplot(data=popular_starts_df)+
+  geom_bar(mapping=aes(x=member_casual, fill=start_station_name))+
+  scale_fill_brewer(type = "div")+
+  labs(x="membership type", y="amount", fill="start station", title="Membership type vs. start stations")
+```
+
+### End stations correlations
+
+Let's make a pivot table on membership type vs. end stations.
+```{r pivot for membership type vs end station, echo=TRUE}
+qpvt(popular_ends_df, "end_station_name", "member_casual", "n()")
+```
+
+Key insights would be stations that tend to be a trip end more frequently (relatively) for casual member; these would be following stations:  
+*1. Streeter Dr & Grand Ave with great increase.*  
+*2. Millennium Park with high increase.*  
+*3. DuSable Lake Shore Dr & Monroe St with high increase.*  
+*4. DuSable Lake Shore Dr & North Blvd with slight increase.*  
+*5. Michigan Ave & Oak St with slight increase.*  
+  
+Let's visualize it.
+```{r plot for membership type vs end station, echo=TRUE}
+ggplot(data=popular_ends_df)+
+  geom_bar(mapping=aes(x=member_casual, fill=end_station_name))+
+  scale_fill_brewer(type = "div")+
+  labs(x="membership type", y="amount", fill="end station", title="Membership type vs. end stations")
+```
+
+## Answering questions
+### How do annual members and casual riders use Cyclistic bikes differently?
+
+Key findings are:  
+*1. Casual users tend to use electric bikes much more than classic ones, where members prefer the other option.*  
+*2. Casual users tend to use bikes much more on weekends as opposed to members that are using bikes on weekdays more frequently.*  
+*3. Average trip duration is much higher for casual members.*  
+*4. Distribution of duration on days of week is similar with subscribed members with pretty high increase on Mondays and Sundays.*  
+*5. __Streeter Dr & Grand Ave__, __DuSable Lake Shore Dr & Monroe St__, __Millennium Park__ and __Michigan Ave & Oak St__ are much more popular stations for casual members.*  
+
+### Why would casual riders buy Cyclistic annual memberships?
+
+Based on findings, my suggestions would be:  
+*1. Some benefits on electric bikes usage for subscribed members.*  
+*2. Better plans on weekend trips for subscribed members.*  
+*3. Profitable offers on longer trips (let's say, more than 15 or 20 minutes) for subscribed members.*  
+
+### How can Cyclistic use digital media to influence casual riders to become members?
+
+If promoted via app itself, advertisements will be more successful on weekends and Mondays than on weekdays.  
+
+If promoted via street screens or banners, advertisements will be more useful in following areas: __Streeter Dr & Grand Ave__, __DuSable Lake Shore Dr & Monroe St__, __Millennium Park__ and __Michigan Ave & Oak St__.
